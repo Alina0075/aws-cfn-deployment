@@ -110,7 +110,7 @@ Resources:
   WebsiteBucket:
     Type: AWS::S3::Bucket
     Properties:
-      BucketName: !Sub marketing-site-${AWS::AccountId}-${AWS::Region}
+      BucketName: !Sub marketing-site-${AWS::StackName}-${AWS::AccountId}-${AWS::Region}
       PublicAccessBlockConfiguration:
         BlockPublicAcls: false
         BlockPublicPolicy: false
@@ -147,3 +147,4 @@ Outputs:
     Value: !Ref WebsiteBucket
   CloudFrontDomainName:
     Value: !GetAtt CloudFrontDistribution.DomainName
+
