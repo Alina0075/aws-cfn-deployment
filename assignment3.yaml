@@ -8,6 +8,7 @@ Parameters:
 
   KeyPairName:
     Type: String
+    Default: Assignment3
     Description: Name of an existing EC2 KeyPair to enable SSH access
 
 Resources:
