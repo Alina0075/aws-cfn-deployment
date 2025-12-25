@@ -1,25 +1,24 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: Free Tier VPC, EC2 App Server (Amazon Linux 3), S3 Bucket, and CloudFront Distribution
+Description: Free Tier VPC, EC2 App Server (Amazon Linux 2023), S3 Bucket, and CloudFront Distribution
 
 Parameters:
   LatestAmiId:
     Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
-    Default: '/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64'
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
+
+  KeyPairName:
+    Type: String
+    Description: Name of an existing EC2 KeyPair to enable SSH access
 
 Resources:
 
-  # VPC
   AppVPC:
     Type: AWS::EC2::VPC
     Properties:
       CidrBlock: 10.0.0.0/16
       EnableDnsSupport: true
       EnableDnsHostnames: true
-      Tags:
-        - Key: Name
-          Value: AppVPC
 
-  # Public Subnet
   PublicSubnet:
     Type: AWS::EC2::Subnet
     Properties:
@@ -27,11 +26,7 @@ Resources:
       CidrBlock: 10.0.1.0/24
       MapPublicIpOnLaunch: true
       AvailabilityZone: !Select [0, !GetAZs '']
-      Tags:
-        - Key: Name
-          Value: PublicSubnet
 
-  # Internet Gateway
   InternetGateway:
     Type: AWS::EC2::InternetGateway
 
@@ -41,7 +36,6 @@ Resources:
       VpcId: !Ref AppVPC
       InternetGatewayId: !Ref InternetGateway
 
-  # Route Table
   PublicRouteTable:
     Type: AWS::EC2::RouteTable
     Properties:
@@ -61,11 +55,10 @@ Resources:
       SubnetId: !Ref PublicSubnet
       RouteTableId: !Ref PublicRouteTable
 
-  # Security Group
   AppSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: Allow HTTP and SSH
+      GroupDescription: Allow SSH and HTTP
       VpcId: !Ref AppVPC
       SecurityGroupIngress:
         - IpProtocol: tcp
@@ -77,27 +70,52 @@ Resources:
           ToPort: 80
           CidrIp: 0.0.0.0/0
 
-  # EC2 Instance (Free Tier)
+  EC2InstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+
+  EC2InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref EC2InstanceRole
+
   AppInstance:
     Type: AWS::EC2::Instance
     Properties:
-      InstanceType: t3.micro        # Free Tier
-      ImageId: !Ref LatestAmiId     # Amazon Linux 3 latest via SSM
+      InstanceType: t3.micro
+      ImageId: !Ref LatestAmiId
+      KeyName: !Ref KeyPairName
+      IamInstanceProfile: !Ref EC2InstanceProfile
       NetworkInterfaces:
         - DeviceIndex: 0
           SubnetId: !Ref PublicSubnet
-          GroupSet: [!Ref AppSecurityGroup]
+          GroupSet:
+            - !Ref AppSecurityGroup
           AssociatePublicIpAddress: true
-      KeyName: YOUR_KEY_PAIR_NAME    # Replace with your actual key pair
+      Tags:
+        - Key: Name
+          Value: AppServer
 
-  # S3 Bucket for Website
   WebsiteBucket:
     Type: AWS::S3::Bucket
     Properties:
-      BucketName: !Sub marketing-site-${AWS::AccountId}
-      AccessControl: PublicRead
+      BucketName: !Sub marketing-site-${AWS::AccountId}-${AWS::Region}
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: false
+        BlockPublicPolicy: false
+        IgnorePublicAcls: false
+        RestrictPublicBuckets: false
 
-  # CloudFront Distribution
   CloudFrontDistribution:
     Type: AWS::CloudFront::Distribution
     Properties:
@@ -105,8 +123,8 @@ Resources:
         Enabled: true
         DefaultRootObject: index.html
         Origins:
-          - DomainName: !GetAtt WebsiteBucket.RegionalDomainName
-            Id: S3Origin
+          - Id: S3Origin
+            DomainName: !GetAtt WebsiteBucket.RegionalDomainName
             S3OriginConfig: {}
         DefaultCacheBehavior:
           TargetOriginId: S3Origin
@@ -117,4 +135,14 @@ Resources:
             QueryString: false
         ViewerCertificate:
           CloudFrontDefaultCertificate: true
-        PriceClass: PriceClass_100  # lowest cost
+        PriceClass: PriceClass_100
+
+Outputs:
+  VPCId:
+    Value: !Ref AppVPC
+  EC2InstanceId:
+    Value: !Ref AppInstance
+  WebsiteBucketName:
+    Value: !Ref WebsiteBucket
+  CloudFrontDomainName:
+    Value: !GetAtt CloudFrontDistribution.DomainName
